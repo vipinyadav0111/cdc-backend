@@ -928,33 +928,91 @@ router.post('/generate-report', auth, async (req, res) => {
 
     const isFirst = interaction_no === 1;
     const sl = s => !s ? 'Not assessed' : ['','Poor','Below Average','Average','Good','Excellent'][s];
+    const firstName = (student_name||'').split(' ')[0];
+    const today = new Date().toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'});
+
+    // Score band label for resume
+    const resumeBand = score_resume <= 2 ? 'needs a major overhaul' : score_resume === 3 ? 'has a decent base but needs targeted improvements' : 'is good but can be sharpened further';
+    const commBand   = score_comm   <= 2 ? 'requires focused daily practice' : score_comm   === 3 ? 'is functional but lacks polish and confidence' : 'is good — focus on executive presence';
+    const techBand   = score_technical <= 2 ? 'needs urgent structured learning' : score_technical === 3 ? 'shows basic knowledge — depth is missing' : 'is solid — now focus on advanced topics';
 
     let prompt;
     if (isFirst) {
-      prompt = `You are an expert career mentor at Manav Rachna Educational Institutions (MREI).
-Generate a comprehensive personalised mentorship report. Address the student DIRECTLY by first name.
+      prompt = `You are a senior career mentor at CDC, Manav Rachna Educational Institutions (MREI). Write a PROFESSIONAL, PERSONALISED mentorship report. Be direct, specific, and actionable — not generic. Address the student by first name "${firstName}" throughout.
 
-STUDENT: ${student_name} | ${roll_no} | ${program} | ${university} | CGPA: ${cgpa||'N/A'}
-CAREER GOAL: ${career_goal||'Not specified'} | DOMAIN: ${domain_interest||'Not specified'}
-Certifications: ${certifications||'None'} | Internships: ${internships||'None'} | Projects: ${projects||'None'}
-Mentor: ${mentor_name} | Date: ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})}
+=== STUDENT PROFILE ===
+Name: ${student_name} | Roll No: ${roll_no}
+Program: ${program} | University: ${university} | CGPA: ${cgpa||'N/A'}
+Career Goal: ${career_goal||'Not specified'} | Domain of Interest: ${domain_interest||'Not specified'}
+Certifications: ${certifications||'None listed'}
+Internships: ${internships||'None listed'}
+Projects: ${projects||'None listed'}
+Mentor: ${mentor_name} | Session Date: ${today}
 
-SCORES (1=Poor → 5=Excellent):
-Resume: ${score_resume}/5 (${sl(score_resume)}) | Communication: ${score_comm}/5 (${sl(score_comm)})
-Grooming: ${score_grooming}/5 (${sl(score_grooming)}) | Attitude: ${score_attitude}/5 (${sl(score_attitude)}) | Technical: ${score_technical}/5 (${sl(score_technical)})
-Strengths: ${strengths||'Not noted'} | Weaknesses: ${weaknesses||'Not noted'}
-Meeting notes: ${notes||'None'}
+=== ASSESSMENT SCORES (1=Poor, 2=Below Average, 3=Average, 4=Good, 5=Excellent) ===
+Resume Quality:      ${score_resume}/5 — ${sl(score_resume)} (${resumeBand})
+Communication:       ${score_comm}/5   — ${sl(score_comm)}   (${commBand})
+Professional Grooming: ${score_grooming}/5 — ${sl(score_grooming)}
+Attitude & Motivation: ${score_attitude}/5 — ${sl(score_attitude)}
+Technical Knowledge:   ${score_technical}/5 — ${sl(score_technical)} (${techBand})
 
-Write a FULL 2-PAGE MENTORSHIP REPORT with:
-## OPENING — address by first name warmly
-## CURRENT PROFILE ASSESSMENT
-## RESUME IMPROVEMENT PLAN (specific to score ${score_resume}/5 and goal: ${career_goal})
-## COMMUNICATION IMPROVEMENT PLAN (specific to score ${score_comm}/5)
-## APTITUDE PREPARATION PLAN (topics + daily targets for ${career_goal} roles)
-## TECHNICAL SKILL ROADMAP (exact skills/tools for ${career_goal})
-## 30-DAY ACTION PLAN (5-7 specific tasks with deadlines)
+Observed Strengths: ${strengths||'Not noted'}
+Observed Weaknesses: ${weaknesses||'Not noted'}
+Session Notes: ${notes||'None'}
+
+=== REPORT INSTRUCTIONS ===
+Write the report with EXACTLY these 8 sections, using these exact headings:
+
+## OPENING
+Write 3–4 lines addressing ${firstName} warmly but professionally. Reference their actual CGPA (${cgpa}), career goal (${career_goal}), and at least one specific project or certification they have listed. Do not be generic.
+
+## CURRENT PROFILE SNAPSHOT
+Give an honest, balanced assessment. Mention what's working (specific strengths observed) and what gaps exist. Reference the actual scores with context — e.g., "Your Technical score of ${score_technical}/5 indicates..." Be candid, not fluffy.
+
+## RESUME IMPROVEMENT PLAN
+Score is ${score_resume}/5. Give 4–5 SPECIFIC, ACTIONABLE improvements tailored to ${career_goal} roles:
+- What sections to add/remove
+- How to quantify their projects (e.g., suggest specific metrics for their listed projects)
+- ATS keyword strategy for ${career_goal}
+- One-line example of how to rewrite a bullet point from their actual project work
+
+## COMMUNICATION & GROOMING PLAN
+Score is Comm ${score_comm}/5, Grooming ${score_grooming}/5. Give a practical weekly routine:
+- Specific speaking exercises (not just "talk to friends")
+- Recommended YouTube channels or apps for communication practice
+- For grooming: professional dress code expectations for ${career_goal} interviews
+
+## QUANTITATIVE APTITUDE & LOGICAL REASONING PLAN
+IMPORTANT: This section is ONLY about Aptitude Test preparation — NOT coding, NOT algorithms, NOT technical subjects.
+Focus specifically on:
+- QA Topics to cover for ${career_goal} company placements: (e.g., Percentages, Profit & Loss, Time-Speed-Distance, Time & Work, Simple/Compound Interest, Ratio & Proportion, Number Systems, Permutation & Combination, Probability, Averages, Mixtures)
+- LR Topics: (e.g., Seating Arrangements, Blood Relations, Syllogisms, Coding-Decoding, Direction Sense, Number Series, Puzzles, Analogies, Statement & Conclusions)
+- Recommended resources: IndiaBIX, R.S. Aggarwal Quantitative Aptitude book, PrepInsta, Freshersworld practice sets
+- Daily target: How many questions per day, which topic to take first based on weakness pattern
+- Exam-style: Which aptitude format ${career_goal} companies typically use (e.g., TCS iON, AMCAT, eLitmus, Cocubes)
+
+## TECHNICAL SKILL ROADMAP
+Based on Technical score ${score_technical}/5 and goal: ${career_goal}. Cover:
+- Top 3–4 technical skills/tools they must master for ${career_goal} placements
+- Specific learning path: what to learn first → what next
+- Free/paid resources: specific course names on Coursera, YouTube, GeeksforGeeks, LeetCode
+- Project idea they can add to resume based on their existing projects (${projects||'N/A'})
+- Target: what their technical profile should look like in 60 days
+
+## 30-DAY ACTION PLAN
+Give exactly 6 tasks. For each task: the task itself + specific resource/platform + measurable target.
+Format strictly as:
+- Week 1 (Days 1–7): [Task] — [Resource] — [Target metric]
+- Week 2 (Days 8–14): [Task] — [Resource] — [Target metric]
+- Week 3 (Days 15–21): [Task] — [Resource] — [Target metric]
+- Week 4 (Days 22–30): [Task] — [Resource] — [Target metric]
+Plus 2 bonus daily habits (e.g., "Solve 5 QA questions on IndiaBIX every morning before class").
+
 ## MENTOR'S CLOSING NOTE
-Be specific. Use bullet points inside sections.`;
+2–3 lines. Be warm but honest. Reference something specific to this student. End with a motivating line tied to their career goal (${career_goal}).
+
+TONE: Professional, direct, encouraging. No filler phrases like "I hope this finds you well". No generic advice. Every sentence must reference something specific to this student's data.`;
+
     } else {
       const changes = ['resume','comm','grooming','attitude','technical'].map(k => {
         const prev = prev_scores?.[`score_${k}`], curr = req.body[`score_${k}`];
@@ -963,24 +1021,36 @@ Be specific. Use bullet points inside sections.`;
         return `${k}: ${prev}→${curr} (${d>0?'+'+d+' ✅':d<0?d+' ⚠️':'no change'})`;
       }).filter(Boolean).join(' | ');
 
-      prompt = `Career mentor at MREI. Write a PROGRESS UPDATE report for session ${interaction_no}.
-Address student ${student_name} directly by first name.
-Goal: ${career_goal||'Not specified'} | Mentor: ${mentor_name}
-Date: ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})}
+      prompt = `You are a senior career mentor at CDC, MREI. Write a CONCISE BUT DETAILED PROGRESS REPORT for Session ${interaction_no}. Be specific and data-driven. Address the student as "${firstName}".
 
-SCORE CHANGES: ${changes||'First comparison'}
-CURRENT: Resume=${score_resume}/5 Comm=${score_comm}/5 Grooming=${score_grooming}/5 Attitude=${score_attitude}/5 Tech=${score_technical}/5
-Notes: ${notes||'None'} | Strengths: ${strengths||'N/A'} | Weaknesses: ${weaknesses||'N/A'}
+STUDENT: ${student_name} | ${roll_no} | Goal: ${career_goal||'Not specified'} | Mentor: ${mentor_name}
+Date: ${today} | Session: ${interaction_no} of 5
 
-Write a 1-PAGE PROGRESS REPORT:
-## PROGRESS OVERVIEW (address by name, honest assessment)
-## SCORE ANALYSIS (what improved, what declined, why it matters)
-## UPDATED ACTION PLAN (5 specific next steps)
-## FOCUS AREAS FOR NEXT MONTH
-## MENTOR'S NOTE`;
+SCORE CHANGES (Previous → Current):
+${changes||'No previous scores to compare — first assessment.'}
+
+CURRENT SCORES: Resume=${score_resume}/5 | Comm=${score_comm}/5 | Grooming=${score_grooming}/5 | Attitude=${score_attitude}/5 | Technical=${score_technical}/5
+Session Notes: ${notes||'None'} | Strengths: ${strengths||'N/A'} | Weaknesses: ${weaknesses||'N/A'}
+
+Write with EXACTLY these 5 sections:
+
+## PROGRESS OVERVIEW
+Honest 3–4 line summary for ${firstName}. What has improved? What hasn't? Be candid with the data.
+
+## SCORE ANALYSIS
+For each score that changed (up or down), explain WHY it matters for ${career_goal} roles and what it signals about their readiness. Don't just list numbers — interpret them.
+
+## QUANTITATIVE APTITUDE & LOGICAL REASONING UPDATE
+Assess their likely QA/LR preparation progress. Give 3 specific next steps for aptitude practice — new topic to tackle, daily question target, mock test recommendation. Do NOT include technical/coding topics here.
+
+## UPDATED ACTION PLAN FOR NEXT 30 DAYS
+5 specific tasks with platforms and measurable targets. Reflect what's most urgent based on the current scores.
+
+## MENTOR'S NOTE
+2 lines: what you're proud of, what you'll watch closely next session. Personal and specific.`;
     }
 
-    const report = await callGroq(prompt, isFirst ? 2500 : 1500);
+    const report = await callGroq(prompt, isFirst ? 2800 : 1800);
     if (mentee_id && interaction_no) {
       await pool.query(
         `UPDATE cmp_interactions SET ai_report=$1 WHERE mentee_id=$2 AND interaction_no=$3`,
@@ -1059,52 +1129,292 @@ Write sections: ## Executive Summary | ## Progress Overview | ## Mentor Complian
 // ══════════════════════════════════════════════════════════════════
 router.post('/download-report', auth, async (req, res) => {
   try {
-    const { Document, Packer, Paragraph, TextRun, AlignmentType, BorderStyle, WidthType, Table, TableRow, TableCell } = require('docx');
-    const { report_text, student_name, roll_no, program, university, mentor_name, interaction_no, meeting_date } = req.body;
+    const {
+      Document, Packer, Paragraph, TextRun, AlignmentType, BorderStyle,
+      WidthType, Table, TableRow, TableCell, ShadingType, VerticalAlign,
+    } = require('docx');
 
-    const NAVY = '1E3A5F'; const ACC = '2563EB'; const LIGHT = 'EBF4FF'; const W = 'FFFFFF';
-    const nb = { style: BorderStyle.NONE, size:0, color:W };
-    const nbs = { top:nb, bottom:nb, left:nb, right:nb };
+    const {
+      report_text, student_name, roll_no, program, university,
+      mentor_name, interaction_no, meeting_date,
+      score_resume, score_comm, score_grooming, score_attitude, score_technical,
+      career_goal,
+    } = req.body;
 
-    const children = [
-      new Paragraph({ children:[new TextRun({ text:'CDC MENTORSHIP PROGRAM 2026', bold:true, size:28, color:W, font:'Calibri' })], alignment:AlignmentType.CENTER, shading:{ type:'clear', fill:NAVY }, spacing:{ before:0, after:0 }, indent:{ left:200, right:200 } }),
-      new Paragraph({ children:[new TextRun({ text:`Mentorship Report — Session ${interaction_no}`, size:22, color:W, font:'Calibri' })], alignment:AlignmentType.CENTER, shading:{ type:'clear', fill:ACC }, spacing:{ before:0, after:240 } }),
+    // ── COLOUR PALETTE ──────────────────────────────────
+    const NAVY  = '1B3A6B';
+    const NAVY2 = '243F7A';
+    const GOLD  = 'C8960C';
+    const TEAL  = '0F7173';
+    const LIGHT = 'EEF3FB';
+    const LGRAY = 'F7F8FA';
+    const WHITE = 'FFFFFF';
+    const DTEXT = '1A1A2E';
+    const MUTED = '6B7280';
+    const GREEN = '059669';
+    const AMBER = 'D97706';
+    const RED   = 'DC2626';
+
+    // ── BORDER HELPERS ──────────────────────────────────
+    const nb    = { style: BorderStyle.NONE, size: 0, color: WHITE };
+    const nbs   = { top: nb, bottom: nb, left: nb, right: nb };
+    const thin  = { style: BorderStyle.SINGLE, size: 4, color: 'DDDDDD' };
+    const thins = { top: thin, bottom: thin, left: thin, right: thin };
+
+    // ── SCORE HELPERS ───────────────────────────────────
+    const scoreColor = s => !s ? MUTED : s <= 2 ? RED   : s === 3 ? AMBER : GREEN;
+    const scoreBg    = s => !s ? 'F3F4F6' : s <= 2 ? 'FEE2E2' : s === 3 ? 'FEF3C7' : 'D1FAE5';
+    const scoreLabel = s => !s ? '—' : ['','Poor','Below Avg','Average','Good','Excellent'][s];
+
+    // ── FACTORIES ───────────────────────────────────────
+    const mkPara = (text, opts = {}) => new Paragraph({
+      alignment: opts.align || AlignmentType.LEFT,
+      spacing:   opts.spacing || { before: 0, after: 0 },
+      children:  [new TextRun({
+        text: String(text || ''),
+        bold: opts.bold, italics: opts.italic,
+        size: opts.size || 20,
+        color: opts.color || DTEXT,
+        font: opts.font || 'Calibri',
+      })],
+    });
+
+    const mkCell = (children, opts = {}) => new TableCell({
+      children:      Array.isArray(children) ? children : [children],
+      borders:       opts.borders || nbs,
+      shading:       opts.bg ? { fill: opts.bg, type: ShadingType.CLEAR } : undefined,
+      verticalAlign: opts.va || VerticalAlign.CENTER,
+      margins:       opts.margins || { top: 80, bottom: 80, left: 120, right: 120 },
+      width:         opts.width ? { size: opts.width, type: WidthType.DXA } : undefined,
+    });
+
+    // ── SECTION HEADER ──────────────────────────────────
+    const sectionHeader = (text, icon) => [
+      new Paragraph({
+        spacing: { before: 260, after: 0 },
+        border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: TEAL, space: 2 } },
+        children: [
+          new TextRun({ text: icon ? icon + '   ' : '', size: 22, font: 'Segoe UI Emoji' }),
+          new TextRun({ text: text.toUpperCase(), bold: true, size: 22, color: NAVY, font: 'Calibri' }),
+        ],
+      }),
+      new Paragraph({ spacing: { before: 80, after: 0 }, children: [new TextRun('')] }),
     ];
 
-    const infoRows = [
-      ['Student', student_name, 'Roll No', roll_no],
-      ['Program', `${program} | ${university}`, 'Mentor', mentor_name],
-      ['Date', meeting_date || new Date().toLocaleDateString('en-IN'), 'Session', `${interaction_no} of 5`],
+    // ── SCORE TABLE ─────────────────────────────────────
+    const scores = [
+      { label: 'Resume',        val: score_resume   },
+      { label: 'Communication', val: score_comm      },
+      { label: 'Grooming',      val: score_grooming  },
+      { label: 'Attitude',      val: score_attitude  },
+      { label: 'Technical',     val: score_technical },
     ];
-    children.push(new Table({ width:{ size:100, type:WidthType.PERCENTAGE }, borders: { top:nb, bottom:nb, left:nb, right:nb, insideH:nb, insideV:nb },
-      rows: infoRows.map(row => new TableRow({ children: [
-        new TableCell({ children:[new Paragraph({ children:[new TextRun({ text:row[0], bold:true, size:20, color:NAVY, font:'Calibri' })] })], borders:nbs, shading:{ type:'clear', fill:LIGHT } }),
-        new TableCell({ children:[new Paragraph({ children:[new TextRun({ text:row[1], size:20, font:'Calibri' })] })], borders:nbs }),
-        new TableCell({ children:[new Paragraph({ children:[new TextRun({ text:row[2], bold:true, size:20, color:NAVY, font:'Calibri' })] })], borders:nbs, shading:{ type:'clear', fill:LIGHT } }),
-        new TableCell({ children:[new Paragraph({ children:[new TextRun({ text:row[3], size:20, font:'Calibri' })] })], borders:nbs }),
-      ]}))
-    }));
-    children.push(new Paragraph({ spacing:{ after:200 } }));
 
-    for (const line of report_text.split('\n').filter(l=>l.trim())) {
-      if (line.startsWith('## ') || line.startsWith('# ')) {
-        children.push(new Paragraph({ children:[new TextRun({ text:line.replace(/^#+\s*/,'').replace(/\*/g,'').trim(), bold:true, size:24, color:W, font:'Calibri' })], shading:{ type:'clear', fill:NAVY }, spacing:{ before:240, after:80 }, indent:{ left:80, right:80 } }));
-      } else if (line.match(/^[-•*]\s/)) {
-        children.push(new Paragraph({ children:[new TextRun({ text:`• ${line.replace(/^[-•*]\s/,'').replace(/\*\*/g,'').trim()}`, size:20, font:'Calibri' })], spacing:{ before:60, after:60 }, indent:{ left:360 } }));
-      } else {
-        children.push(new Paragraph({ children:[new TextRun({ text:line.replace(/\*\*/g,'').trim(), size:20, font:'Calibri' })], spacing:{ before:80, after:80 } }));
+    const scoreTable = new Table({
+      width: { size: 9200, type: WidthType.DXA },
+      columnWidths: [1840, 1840, 1840, 1840, 1840],
+      rows: [
+        new TableRow({ children: scores.map(s => mkCell(
+          mkPara(s.label, { bold: true, size: 18, color: NAVY, align: AlignmentType.CENTER }),
+          { bg: LIGHT, borders: thins }
+        ))}),
+        new TableRow({ children: scores.map(s => mkCell(
+          [
+            mkPara(`${s.val || '—'}/5`, { bold: true, size: 28, color: scoreColor(s.val), align: AlignmentType.CENTER }),
+            mkPara(scoreLabel(s.val),   { size: 16, color: scoreColor(s.val), align: AlignmentType.CENTER, italic: true }),
+          ],
+          { bg: scoreBg(s.val), borders: thins, margins: { top: 100, bottom: 100, left: 80, right: 80 } }
+        ))}),
+      ],
+    });
+
+    // ── PARSE AI TEXT ───────────────────────────────────
+    const ICONS = {
+      'OPENING':                 '\u{1F44B}',
+      'CURRENT PROFILE':         '\u{1F4CA}',
+      'SNAPSHOT':                '\u{1F4CA}',
+      'RESUME':                  '\u{1F4C4}',
+      'COMMUNICATION':           '\u{1F5E3}',
+      'GROOMING':                '\u{1F454}',
+      'QUANTITATIVE':            '\u{1F9EE}',
+      'APTITUDE':                '\u{1F9EE}',
+      'LOGICAL':                 '\u{1F9EE}',
+      'TECHNICAL':               '\u{1F4BB}',
+      '30-DAY':                  '\u{1F4C5}',
+      'ACTION PLAN':             '\u{1F4C5}',
+      'MENTOR':                  '\u{1F393}',
+      'PROGRESS':                '\u{1F4C8}',
+      'SCORE ANALYSIS':          '\u{1F50D}',
+    };
+    const getIcon = heading => {
+      const up = heading.toUpperCase();
+      for (const [k, v] of Object.entries(ICONS)) { if (up.includes(k)) return v; }
+      return '\u25B8';
+    };
+
+    const contentKids = [];
+    let insertScoreAfterNext = false;
+
+    for (const line of (report_text || '').split('\n')) {
+      const t = line.trim();
+      if (!t) {
+        contentKids.push(new Paragraph({ spacing: { before: 60, after: 0 }, children: [new TextRun('')] }));
+        continue;
       }
+
+      // Section headings
+      if (/^#{1,2}\s/.test(t)) {
+        const heading = t.replace(/^#+\s*/, '').replace(/\*\*/g, '').trim();
+        const isProfile = /PROFILE|SNAPSHOT|ASSESSMENT/i.test(heading);
+        contentKids.push(...sectionHeader(heading, getIcon(heading)));
+        if (isProfile) {
+          contentKids.push(scoreTable);
+          contentKids.push(new Paragraph({ spacing: { before: 140, after: 0 }, children: [new TextRun('')] }));
+        }
+        continue;
+      }
+
+      // Sub-heading (bold)
+      if (t.startsWith('**') && t.endsWith('**')) {
+        contentKids.push(new Paragraph({
+          spacing: { before: 140, after: 40 },
+          children: [new TextRun({ text: t.replace(/\*\*/g,'').trim(), bold: true, size: 20, color: TEAL, font: 'Calibri' })],
+        }));
+        continue;
+      }
+
+      // Week/Day labels
+      if (/^(Week|Day)\s+\d/i.test(t)) {
+        contentKids.push(new Paragraph({
+          spacing: { before: 100, after: 40 },
+          border: { left: { style: BorderStyle.SINGLE, size: 16, color: GOLD, space: 4 } },
+          indent: { left: 160 },
+          children: [new TextRun({ text: t.replace(/\*\*/g,''), bold: true, size: 20, color: NAVY2, font: 'Calibri' })],
+        }));
+        continue;
+      }
+
+      // Bullet points
+      if (/^[-•*+]\s/.test(t)) {
+        const content = t.replace(/^[-•*+]\s*/, '').replace(/\*\*/g, '').trim();
+        const bm = content.match(/^(.+?):\s(.+)/);
+        if (bm && bm[1].length < 40) {
+          contentKids.push(new Paragraph({
+            spacing: { before: 60, after: 60 },
+            indent: { left: 360, hanging: 240 },
+            children: [
+              new TextRun({ text: '\u25B8   ', size: 18, color: GOLD, font: 'Calibri' }),
+              new TextRun({ text: bm[1] + ': ', bold: true, size: 19, color: NAVY, font: 'Calibri' }),
+              new TextRun({ text: bm[2], size: 19, color: DTEXT, font: 'Calibri' }),
+            ],
+          }));
+        } else {
+          contentKids.push(new Paragraph({
+            spacing: { before: 60, after: 60 },
+            indent: { left: 360, hanging: 240 },
+            children: [
+              new TextRun({ text: '\u25B8   ', size: 18, color: GOLD, font: 'Calibri' }),
+              new TextRun({ text: content, size: 19, color: DTEXT, font: 'Calibri' }),
+            ],
+          }));
+        }
+        continue;
+      }
+
+      // Plain text
+      contentKids.push(new Paragraph({
+        spacing: { before: 60, after: 60 },
+        children: [new TextRun({ text: t.replace(/\*\*/g,''), size: 19, color: DTEXT, font: 'Calibri' })],
+      }));
     }
 
-    children.push(new Paragraph({ spacing:{ before:400 } }));
-    children.push(new Paragraph({ children:[new TextRun({ text:'Career Development Centre (CDC) | Manav Rachna Educational Institutions | CMP 2026', size:16, color:'888888', font:'Calibri', italics:true })], alignment:AlignmentType.CENTER }));
+    // ── HEADER BANNER ───────────────────────────────────
+    const headerTable = new Table({
+      width: { size: 9200, type: WidthType.DXA },
+      columnWidths: [5520, 3680],
+      rows: [
+        new TableRow({
+          height: { value: 900, rule: 'exact' },
+          children: [
+            mkCell([
+              mkPara('CAREER DEVELOPMENT CENTRE', { bold: true, size: 26, color: WHITE }),
+              mkPara('Manav Rachna Educational Institutions (MREI)', { size: 17, color: 'AACCEE', italic: true }),
+            ], { bg: NAVY, borders: nbs, margins: { top: 140, bottom: 140, left: 200, right: 120 } }),
+            mkCell([
+              mkPara('CDC MENTORSHIP PROGRAM', { bold: true, size: 20, color: GOLD, align: AlignmentType.CENTER }),
+              mkPara('CMP 2026', { bold: true, size: 26, color: WHITE, align: AlignmentType.CENTER }),
+              mkPara(`Session ${interaction_no || 1} of 5`, { size: 17, color: 'CCDDEE', align: AlignmentType.CENTER }),
+            ], { bg: NAVY2, borders: nbs, margins: { top: 100, bottom: 100, left: 120, right: 120 } }),
+          ],
+        }),
+        new TableRow({
+          height: { value: 55, rule: 'exact' },
+          children: [
+            mkCell(mkPara(''), { bg: GOLD, borders: nbs, margins: { top: 0, bottom: 0, left: 0, right: 0 } }),
+            mkCell(mkPara(''), { bg: TEAL, borders: nbs, margins: { top: 0, bottom: 0, left: 0, right: 0 } }),
+          ],
+        }),
+      ],
+    });
 
-    const doc = new Document({ sections:[{ properties:{}, children }] });
+    // ── INFO TABLE ──────────────────────────────────────
+    const infoRows = [
+      ['\u{1F464}  Student',  student_name || '\u2014', '\u{1F393}  Roll No', roll_no || '\u2014'],
+      ['\u{1F4DA}  Program',  `${program || '\u2014'} \u2014 ${university || '\u2014'}`, '\u{1F468}\u200D\u{1F3EB}  Mentor', mentor_name || '\u2014'],
+      ['\u{1F4C5}  Date',     meeting_date || new Date().toLocaleDateString('en-IN'), '\u{1F3AF}  Goal', career_goal || '\u2014'],
+    ];
+
+    const infoTable = new Table({
+      width: { size: 9200, type: WidthType.DXA },
+      columnWidths: [1600, 3000, 1600, 3000],
+      rows: infoRows.map((row, i) => new TableRow({ children: [
+        mkCell(mkPara(row[0], { bold: true, size: 18, color: NAVY }), { bg: LIGHT, borders: thins }),
+        mkCell(mkPara(row[1], { size: 19, color: DTEXT }),             { bg: i % 2 === 0 ? WHITE : LGRAY, borders: thins }),
+        mkCell(mkPara(row[2], { bold: true, size: 18, color: NAVY }), { bg: LIGHT, borders: thins }),
+        mkCell(mkPara(row[3], { size: 19, color: DTEXT }),             { bg: i % 2 === 0 ? WHITE : LGRAY, borders: thins }),
+      ]})),
+    });
+
+    // ── FOOTER ──────────────────────────────────────────
+    const footerPara = new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 300, after: 60 },
+      border: { top: { style: BorderStyle.SINGLE, size: 6, color: TEAL, space: 4 } },
+      children: [
+        new TextRun({ text: 'Career Development Centre (CDC)  \u00B7  ', size: 15, color: MUTED, font: 'Calibri', italics: true }),
+        new TextRun({ text: 'Manav Rachna Educational Institutions', size: 15, color: NAVY, font: 'Calibri', bold: true }),
+        new TextRun({ text: '  \u00B7  CMP 2026  \u00B7  CONFIDENTIAL', size: 15, color: MUTED, font: 'Calibri', italics: true }),
+      ],
+    });
+
+    // ── ASSEMBLE ────────────────────────────────────────
+    const doc = new Document({
+      styles: { default: { document: { run: { font: 'Calibri', size: 20, color: DTEXT } } } },
+      sections: [{
+        properties: {
+          page: { size: { width: 11906, height: 16838 }, margin: { top: 720, right: 800, bottom: 720, left: 800 } },
+        },
+        children: [
+          headerTable,
+          new Paragraph({ spacing: { before: 160, after: 0 }, children: [new TextRun('')] }),
+          infoTable,
+          new Paragraph({ spacing: { before: 160, after: 0 }, children: [new TextRun('')] }),
+          ...contentKids,
+          new Paragraph({ spacing: { before: 120, after: 120 }, border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: 'E5E7EB', space: 1 } }, children: [new TextRun('')] }),
+          footerPara,
+        ],
+      }],
+    });
+
     const buffer = await Packer.toBuffer(doc);
-    res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition',`attachment; filename="CMP_Report_${(student_name||'Report').replace(/\s+/g,'_')}_S${interaction_no}.docx"`);
+    const safeName = (student_name || 'Report').replace(/\s+/g, '_');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="CMP2026_${safeName}_Session${interaction_no}.docx"`);
     res.send(buffer);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) {
+    console.error('Download report error:', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -1406,19 +1716,35 @@ ASSESSMENT QUALITY (from ${d.sc?.cnt||0} scored interactions):
 - Attitude avg: ${d.sc?.attitude||'N/A'}/5
 - Grooming avg: ${d.sc?.grooming||'N/A'}/5
 
-Write a PROFESSIONAL TRAINER PERFORMANCE REPORT for CDC management with these sections:
+Write a PROFESSIONAL, DATA-DRIVEN TRAINER PERFORMANCE REPORT for CDC senior management. Be candid, specific — use actual numbers in every section.
+
+Use EXACTLY these sections:
 
 ## EXECUTIVE SUMMARY
-## COMPLIANCE STATUS (with clear rating: On Track / Needs Attention / Critical)
-## COHORT PROFILE (student background analysis)
-## ENGAGEMENT QUALITY (scoring patterns, feedback quality)
-## AREAS OF STRENGTH
-## AREAS OF CONCERN
-## RECOMMENDATIONS FOR CDC MANAGEMENT
-## SUGGESTED ACTIONS FOR NEXT REVIEW CYCLE
+One sharp paragraph: overall verdict on this trainer. Compliance rating: On Track / Needs Attention / Critical — with justification from the data.
 
-Be analytical, honest, and specific. Use the exact numbers. This is for internal management use only.
-No more than 2 pages.`;
+## COHORT PROFILE
+Analyse the assigned students: career goal spread, CGPA range, backlog situation. What kind of cohort is this trainer handling?
+
+## MENTORSHIP COMPLIANCE
+Break down each activity with the actual number and rate. Group meeting attendance, 1-on-1 completion, resumes collected, referrals given. For each metric state whether it is acceptable or flags a concern.
+
+## ASSESSMENT QUALITY
+Analyse the scoring averages: what do they signal about cohort placement readiness? Are scores being assessed rigorously? Flag any anomalies.
+
+## AREAS OF STRENGTH
+Specific positives based on the numbers — not generic praise.
+
+## AREAS OF CONCERN
+Direct red flags: what is lagging, what is the risk to student placement outcomes if it continues.
+
+## RECOMMENDATIONS FOR CDC MANAGEMENT
+3-4 concrete, actionable steps for the CDC head regarding this trainer.
+
+## NEXT REVIEW PRIORITIES
+3 specific things to verify at next review with measurable targets.
+
+Tone: Professional, frank, management-grade. No filler. Every section must cite actual data.`;
 
       const report = await callGroq(prompt, 2500);
       res.json({ report, trainer_name: tName, type: 'individual', data: d });
@@ -1477,22 +1803,39 @@ MENTOR PERFORMANCE SPLIT:
 ASSESSMENT DATA (where scored):
 - Avg Resume: ${d.sc?.resume||'N/A'}/5 | Comm: ${d.sc?.comm||'N/A'}/5 | Technical: ${d.sc?.tech||'N/A'}/5
 
-Write a PROFESSIONAL DEPARTMENT PERFORMANCE REPORT with:
+Write a PROFESSIONAL, ANALYTICAL PROGRAM-LEVEL PERFORMANCE REPORT for CDC senior management. Be direct, data-driven, and candid. Name names where the data demands it.
+
+Use EXACTLY these sections:
 
 ## EXECUTIVE SUMMARY
-## PROGRAM PROGRESS OVERVIEW
-## MENTOR TEAM PERFORMANCE ANALYSIS
-  - Highlight top performers by name
-  - Flag mentors needing follow-up by name
-  - Patterns observed across the team
-## STUDENT COHORT PROFILE INSIGHTS
-## PLACEMENT READINESS ASSESSMENT
-## KEY RISKS AND CONCERNS
-## STRATEGIC RECOMMENDATIONS FOR CDC HEAD
-## ACTION ITEMS WITH SUGGESTED DEADLINES
+3–4 lines. Overall CMP 2026 health: On Track / Needs Intervention / Critical. State the most important number and the biggest risk in one line each.
 
-Be analytical, data-driven, candid. Name names where relevant. This is for CDC management only.
-2-3 pages.`;
+## PROGRAM PROGRESS OVERVIEW
+Use the actual numbers: total enrolled, group meeting coverage, 1-on-1 completion %, Session 2+ penetration, resumes collected, referrals made. Interpret each — what does it mean for the program's trajectory?
+
+## MENTOR TEAM PERFORMANCE ANALYSIS
+Name specific mentors by name:
+- Top performers: who has strong 1-on-1 completion and what they're doing right
+- Mentors needing intervention: who is behind and by how much
+- Group meeting gaps: who hasn't logged their group meeting yet
+- Pattern observed across the team as a whole
+
+## STUDENT COHORT INSIGHTS
+Career goal distribution — which sectors dominate and what that means for placement strategy. CGPA profile: how many are high achievers vs at-risk. Backlog situation. What does the average student in CMP 2026 look like?
+
+## PLACEMENT READINESS ASSESSMENT
+Based on avg scores (Resume, Communication, Technical): are students on track for placements? What's the biggest skills gap? What percentage of students would be interview-ready today?
+
+## KEY RISKS & CONCERNS
+3–4 specific, honest risks. Not vague concerns — specific data-backed risks (e.g., "X mentors have not completed even 1-on-1 with Y% of students — at current pace, Z students will have zero mentorship contact before placements").
+
+## STRATEGIC RECOMMENDATIONS FOR CDC HEAD
+4–5 concrete, prioritised recommendations. Each must be actionable in the next 30 days.
+
+## ACTION ITEMS WITH DEADLINES
+6 specific action items in format: [Action] — [Owner] — [Deadline]
+
+Tone: Management-grade. Candid. Data-first. No padding. This goes to the CDC Head.`;
 
       const report = await callGroq(prompt, 3000);
       res.json({ report, type: 'combined', data: d, mentor_breakdown: mentorBreakdown.rows });
