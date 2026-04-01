@@ -1064,6 +1064,437 @@ Assess their likely QA/LR preparation progress. Give 3 specific next steps for a
 // ══════════════════════════════════════════════════════════════════
 // AI PROGRAM REPORT (admin)
 // ══════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// FULL PROGRAM REPORT DATA — structured data for all 3 formats
+// ══════════════════════════════════════════════════════════════════
+router.get('/full-program-data', auth, async (req, res) => {
+  if (req.user.role !== 'super_admin') return res.status(403).json({ error: 'Admin only' });
+  try {
+    const [totals, mentorwise, scores, careers, grpSummary] = await Promise.all([
+      pool.query(`
+        SELECT
+          COUNT(DISTINCT m.id) AS total,
+          COUNT(DISTINCT CASE WHEN ci.interaction_no=1 THEN ci.mentee_id END) AS i1_done,
+          COUNT(DISTINCT CASE WHEN ci.interaction_no=2 THEN ci.mentee_id END) AS i2_done,
+          COUNT(DISTINCT CASE WHEN ci.interaction_no=3 THEN ci.mentee_id END) AS i3_done,
+          COUNT(DISTINCT CASE WHEN ga.attended=true  THEN ga.mentee_id END) AS grp_present,
+          COUNT(DISTINCT CASE WHEN ga.attended=false THEN ga.mentee_id END) AS grp_absent,
+          COUNT(DISTINCT m.id) FILTER (WHERE ga.mentee_id IS NULL) AS grp_not_marked,
+          COUNT(DISTINCT gm.mentor_id) AS mentors_held_grp
+        FROM cmp_mentees m
+        LEFT JOIN cmp_group_meeting gm ON gm.mentor_id=m.mentor_id
+        LEFT JOIN cmp_group_attendance ga ON ga.mentee_id=m.id
+        LEFT JOIN cmp_interactions ci ON ci.mentee_id=m.id
+      `),
+
+      // Mentor-wise Session 1 breakdown
+      pool.query(`
+        SELECT
+          u.id,
+          u.name,
+          COUNT(DISTINCT m.id) AS assigned,
+          COUNT(DISTINCT CASE WHEN ci.interaction_no=1 THEN ci.mentee_id END) AS i1_done,
+          gm.held_date AS grp_held,
+          COUNT(DISTINCT CASE WHEN ga.attended=true THEN ga.mentee_id END) AS grp_present,
+          ROUND(AVG(CASE WHEN ci.interaction_no=1 THEN ci.score_resume  END),1) AS avg_resume,
+          ROUND(AVG(CASE WHEN ci.interaction_no=1 THEN ci.score_comm    END),1) AS avg_comm,
+          ROUND(AVG(CASE WHEN ci.interaction_no=1 THEN ci.score_technical END),1) AS avg_tech,
+          ROUND(AVG(CASE WHEN ci.interaction_no=1 THEN ci.score_attitude END),1) AS avg_attitude,
+          ROUND(AVG(CASE WHEN ci.interaction_no=1 THEN ci.score_grooming END),1) AS avg_grooming,
+          ROUND(
+            AVG(CASE WHEN ci.interaction_no=1 THEN
+              (COALESCE(ci.score_resume,0)+COALESCE(ci.score_comm,0)+
+               COALESCE(ci.score_technical,0)+COALESCE(ci.score_attitude,0))/4.0
+            END)
+          ,1) AS avg_overall
+        FROM users u
+        JOIN cmp_mentees m ON m.mentor_id=u.id
+        LEFT JOIN cmp_interactions ci ON ci.mentee_id=m.id
+        LEFT JOIN cmp_group_meeting gm ON gm.mentor_id=u.id
+        LEFT JOIN cmp_group_attendance ga ON ga.mentee_id=m.id
+        WHERE u.is_active=true
+        GROUP BY u.id, u.name, gm.held_date
+        ORDER BY i1_done DESC, assigned DESC
+      `),
+
+      // Overall avg scores for Session 1
+      pool.query(`
+        SELECT
+          ROUND(AVG(score_resume),1)    AS resume,
+          ROUND(AVG(score_comm),1)      AS comm,
+          ROUND(AVG(score_grooming),1)  AS grooming,
+          ROUND(AVG(score_attitude),1)  AS attitude,
+          ROUND(AVG(score_technical),1) AS tech,
+          COUNT(*) AS scored_count
+        FROM cmp_interactions
+        WHERE interaction_no=1 AND score_resume IS NOT NULL
+      `),
+
+      // Career goal distribution
+      pool.query(`
+        SELECT career_goal, COUNT(*) AS cnt
+        FROM cmp_mentees
+        WHERE career_goal IS NOT NULL AND career_goal != ''
+        GROUP BY career_goal ORDER BY cnt DESC LIMIT 10
+      `),
+
+      // Group meeting consolidated summary
+      pool.query(`
+        SELECT
+          COUNT(DISTINCT gm.mentor_id) AS mentors_with_meeting,
+          COUNT(DISTINCT CASE WHEN ga.attended=true  THEN ga.mentee_id END) AS total_present,
+          COUNT(DISTINCT CASE WHEN ga.attended=false THEN ga.mentee_id END) AS total_absent,
+          (SELECT COUNT(*) FROM users WHERE is_active=true AND EXISTS(SELECT 1 FROM cmp_mentees WHERE mentor_id=users.id)) AS total_mentors
+        FROM cmp_group_meeting gm
+        LEFT JOIN cmp_group_attendance ga ON ga.mentor_id=gm.mentor_id
+      `),
+    ]);
+
+    res.json({
+      totals:      totals.rows[0],
+      mentorwise:  mentorwise.rows,
+      scores:      scores.rows[0],
+      careers:     careers.rows,
+      grpSummary:  grpSummary.rows[0],
+      generatedAt: new Date().toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'}),
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// DOWNLOAD FULL PROGRAM REPORT — DOCX with embedded bar chart
+// ══════════════════════════════════════════════════════════════════
+router.post('/download-full-report', auth, async (req, res) => {
+  if (req.user.role !== 'super_admin') return res.status(403).json({ error: 'Admin only' });
+  try {
+    const {
+      Document, Packer, Paragraph, TextRun, AlignmentType, BorderStyle,
+      WidthType, Table, TableRow, TableCell, ShadingType, VerticalAlign,
+      ImageRun,
+    } = require('docx');
+    const sharp = require('sharp');
+
+    const { totals, mentorwise, scores, careers, grpSummary, aiText, generatedAt } = req.body;
+
+    // ── COLOURS ─────────────────────────────────────────
+    const NAVY  = '1B3A6B'; const NAVY2 = '243F7A';
+    const GOLD  = 'C8960C'; const TEAL  = '0F7173';
+    const LIGHT = 'EEF3FB'; const LGRAY = 'F7F8FA';
+    const WHITE = 'FFFFFF'; const DTEXT = '1A1A2E';
+    const MUTED = '6B7280'; const GREEN = '059669';
+    const AMBER = 'D97706'; const RED   = 'DC2626';
+
+    const nb    = { style: BorderStyle.NONE, size: 0, color: WHITE };
+    const nbs   = { top: nb, bottom: nb, left: nb, right: nb };
+    const thin  = { style: BorderStyle.SINGLE, size: 4, color: 'DDDDDD' };
+    const thins = { top: thin, bottom: thin, left: thin, right: thin };
+    const thick = { style: BorderStyle.SINGLE, size: 8, color: 'CCCCCC' };
+    const thicks= { top: thick, bottom: thick, left: thick, right: thick };
+
+    const total = parseInt(totals?.total) || 1;
+
+    const pct = (n, d) => d ? Math.round((parseInt(n)||0) / parseInt(d) * 100) : 0;
+
+    // score color
+    const scCol = s => !s ? MUTED : parseFloat(s) <= 2 ? RED : parseFloat(s) < 4 ? AMBER : GREEN;
+    const scBg  = s => !s ? 'F3F4F6' : parseFloat(s) <= 2 ? 'FEE2E2' : parseFloat(s) < 4 ? 'FEF3C7' : 'D1FAE5';
+
+    // ── HELPERS ──────────────────────────────────────────
+    const mkP = (text, opts={}) => new Paragraph({
+      alignment: opts.align || AlignmentType.LEFT,
+      spacing:   opts.spacing || { before: 0, after: 0 },
+      children:  [new TextRun({
+        text: String(text||''), bold: opts.bold, italics: opts.italic,
+        size: opts.size||20, color: opts.color||DTEXT, font: opts.font||'Calibri',
+      })],
+    });
+
+    const mkC = (children, opts={}) => new TableCell({
+      children: Array.isArray(children)?children:[children],
+      borders:       opts.borders||nbs,
+      shading:       opts.bg?{fill:opts.bg,type:ShadingType.CLEAR}:undefined,
+      verticalAlign: opts.va||VerticalAlign.CENTER,
+      margins:       opts.margins||{top:80,bottom:80,left:120,right:120},
+      width:         opts.width?{size:opts.width,type:WidthType.DXA}:undefined,
+    });
+
+    const secHead = (text, icon='') => [
+      new Paragraph({
+        spacing: { before: 280, after: 0 },
+        border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: TEAL, space: 2 } },
+        children: [
+          ...(icon ? [new TextRun({text: icon+'  ', size:22, font:'Segoe UI Emoji'})] : []),
+          new TextRun({text: text.toUpperCase(), bold:true, size:22, color:NAVY, font:'Calibri'}),
+        ],
+      }),
+      new Paragraph({ spacing:{before:80,after:0}, children:[new TextRun('')] }),
+    ];
+
+    // ── GENERATE BAR CHART SVG → PNG ─────────────────────
+    const buildChartSVG = (rows, total) => {
+      const W = 680, barH = 28, gap = 10, labelW = 140, numW = 80;
+      const innerW = W - labelW - numW - 20;
+      const H = rows.length * (barH + gap) + 60;
+
+      const getColor = (p) => p >= 80 ? '#059669' : p >= 50 ? '#D97706' : '#DC2626';
+
+      const bars = rows.map((r, i) => {
+        const done    = parseInt(r.i1_done) || 0;
+        const assign  = parseInt(r.assigned) || 1;
+        const p       = Math.round(done / assign * 100);
+        const barW    = Math.max(Math.round(p / 100 * innerW), done > 0 ? 4 : 0);
+        const y       = 40 + i * (barH + gap);
+        const col     = getColor(p);
+        const name    = (r.name||'').length > 20 ? r.name.slice(0,18)+'…' : (r.name||'');
+        return `
+          <text x="0" y="${y+barH*0.7}" font-size="11" fill="#374151" font-family="Calibri,Arial">${name}</text>
+          <rect x="${labelW}" y="${y}" width="${innerW}" height="${barH}" rx="4" fill="#F3F4F6"/>
+          <rect x="${labelW}" y="${y}" width="${barW}" height="${barH}" rx="4" fill="${col}"/>
+          <text x="${labelW+innerW+8}" y="${y+barH*0.7}" font-size="11" font-weight="bold" fill="${col}" font-family="Calibri,Arial">${done}/${assign} (${p}%)</text>`;
+      }).join('');
+
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:white">
+        <text x="0" y="20" font-size="13" font-weight="bold" fill="#1B3A6B" font-family="Calibri,Arial">Session 1 — 1-on-1 Completion by Mentor</text>
+        <text x="0" y="34" font-size="10" fill="#6B7280" font-family="Calibri,Arial">■ Green ≥80%  ■ Amber 50–79%  ■ Red &lt;50%</text>
+        ${bars}
+      </svg>`;
+    };
+
+    const svgStr = buildChartSVG(mentorwise || [], total);
+    const chartPng = await sharp(Buffer.from(svgStr)).png().toBuffer();
+
+    // ── HEADER BANNER ────────────────────────────────────
+    const headerTable = new Table({
+      width: { size: 9200, type: WidthType.DXA },
+      columnWidths: [5520, 3680],
+      rows: [
+        new TableRow({
+          height: { value: 900, rule: 'exact' },
+          children: [
+            mkC([
+              mkP('CAREER DEVELOPMENT CENTRE',{bold:true,size:26,color:WHITE}),
+              mkP('Manav Rachna Educational Institutions (MREI)',{size:17,color:'AACCEE',italic:true}),
+            ], { bg:NAVY, borders:nbs, margins:{top:140,bottom:140,left:200,right:120} }),
+            mkC([
+              mkP('FULL PROGRAM REPORT',{bold:true,size:20,color:GOLD,align:AlignmentType.CENTER}),
+              mkP('CMP 2026',{bold:true,size:26,color:WHITE,align:AlignmentType.CENTER}),
+              mkP(generatedAt||new Date().toLocaleDateString('en-IN'),{size:17,color:'CCDDEE',align:AlignmentType.CENTER}),
+            ], { bg:NAVY2, borders:nbs, margins:{top:100,bottom:100,left:120,right:120} }),
+          ],
+        }),
+        new TableRow({
+          height:{value:55,rule:'exact'},
+          children:[
+            mkC(mkP(''),{bg:GOLD,borders:nbs,margins:{top:0,bottom:0,left:0,right:0}}),
+            mkC(mkP(''),{bg:TEAL,borders:nbs,margins:{top:0,bottom:0,left:0,right:0}}),
+          ],
+        }),
+      ],
+    });
+
+    // ── KPI STRIP ────────────────────────────────────────
+    const t  = totals || {};
+    const gs = grpSummary || {};
+    const sc = scores || {};
+    const kpis = [
+      { label:'Total Students',    val: t.total||'—',      color:NAVY  },
+      { label:'Group Mtg Present', val: `${t.grp_present||0}/${t.total||0}`, color:TEAL },
+      { label:'Session 1 Done',    val: `${t.i1_done||0}/${t.total||0}`,     color:GREEN },
+      { label:'Session 2 Done',    val: `${t.i2_done||0}/${t.total||0}`,     color:AMBER },
+      { label:'Mentors w/ Grp Mtg',val: `${gs.mentors_with_meeting||0}/${gs.total_mentors||0}`, color:NAVY2 },
+      { label:'Session 1 Coverage',val: `${pct(t.i1_done,t.total)}%`,        color: parseInt(t.i1_done)*100/(parseInt(t.total)||1) >= 80 ? GREEN : AMBER },
+    ];
+
+    const kpiTable = new Table({
+      width: { size: 9200, type: WidthType.DXA },
+      columnWidths: [1533,1533,1533,1533,1534,1534],
+      rows: [
+        new TableRow({ children: kpis.map(k => mkC([
+          mkP(String(k.val), {bold:true, size:26, color:k.color, align:AlignmentType.CENTER}),
+          mkP(k.label, {size:15, color:MUTED, align:AlignmentType.CENTER}),
+        ], { bg:LIGHT, borders:thins, margins:{top:100,bottom:100,left:60,right:60} })) }),
+      ],
+    });
+
+    // ── GROUP MEETING CONSOLIDATED TABLE ─────────────────
+    const grpTotal   = parseInt(t.total) || 0;
+    const grpPresent = parseInt(t.grp_present) || 0;
+    const grpAbsent  = parseInt(t.grp_absent)  || 0;
+    const grpPct     = pct(grpPresent, grpTotal);
+
+    const grpTable = new Table({
+      width: { size: 9200, type: WidthType.DXA },
+      columnWidths: [3066, 1534, 1534, 1534, 1532],
+      rows: [
+        new TableRow({ children: [
+          mkC(mkP('Activity',    {bold:true,size:18,color:WHITE}), {bg:NAVY, borders:thins}),
+          mkC(mkP('Total',       {bold:true,size:18,color:WHITE,align:AlignmentType.CENTER}), {bg:NAVY, borders:thins}),
+          mkC(mkP('Present',     {bold:true,size:18,color:WHITE,align:AlignmentType.CENTER}), {bg:NAVY, borders:thins}),
+          mkC(mkP('Absent',      {bold:true,size:18,color:WHITE,align:AlignmentType.CENTER}), {bg:NAVY, borders:thins}),
+          mkC(mkP('Attendance %',{bold:true,size:18,color:WHITE,align:AlignmentType.CENTER}), {bg:NAVY, borders:thins}),
+        ]}),
+        new TableRow({ children: [
+          mkC(mkP('Group Orientation Meeting', {size:19,color:DTEXT}), {bg:WHITE, borders:thins}),
+          mkC(mkP(String(grpTotal),   {size:19,align:AlignmentType.CENTER}), {bg:LGRAY,  borders:thins}),
+          mkC(mkP(String(grpPresent), {size:19,color:GREEN,bold:true,align:AlignmentType.CENTER}), {bg:WHITE, borders:thins}),
+          mkC(mkP(String(grpAbsent),  {size:19,color:grpAbsent>0?RED:DTEXT,bold:true,align:AlignmentType.CENTER}), {bg:LGRAY, borders:thins}),
+          mkC(mkP(`${grpPct}%`, {size:22,bold:true,color:grpPct>=80?GREEN:grpPct>=50?AMBER:RED,align:AlignmentType.CENTER}), {bg:scBg(grpPct/20), borders:thins}),
+        ]}),
+      ],
+    });
+
+    // ── SESSION 1 MENTOR TABLE ────────────────────────────
+    const s1Rows = (mentorwise||[]).map((r,i) => {
+      const done   = parseInt(r.i1_done)||0;
+      const assign = parseInt(r.assigned)||1;
+      const pctVal = pct(done, assign);
+      const pending= assign - done;
+      const avgOv  = r.avg_overall ? parseFloat(r.avg_overall).toFixed(1) : '—';
+      return new TableRow({ children: [
+        mkC(mkP(r.name||'—', {size:18,color:DTEXT}),            {bg: i%2===0?WHITE:LGRAY, borders:thins}),
+        mkC(mkP(String(assign), {size:19,align:AlignmentType.CENTER}),      {bg: i%2===0?WHITE:LGRAY, borders:thins}),
+        mkC(mkP(String(done), {size:19,bold:true,color:done>0?GREEN:RED,align:AlignmentType.CENTER}), {bg: i%2===0?WHITE:LGRAY, borders:thins}),
+        mkC(mkP(String(pending), {size:19,color:pending>0?AMBER:GREEN,bold:true,align:AlignmentType.CENTER}), {bg: i%2===0?WHITE:LGRAY, borders:thins}),
+        mkC(mkP(`${pctVal}%`, {size:19,bold:true,color:pctVal>=80?GREEN:pctVal>=50?AMBER:RED,align:AlignmentType.CENTER}), {bg:scBg(pctVal/20), borders:thins}),
+        mkC(mkP(String(avgOv), {size:19,bold:true,color:scCol(r.avg_overall),align:AlignmentType.CENTER}), {bg:scBg(r.avg_overall), borders:thins}),
+      ]});
+    });
+
+    // Totals row
+    const totalDone    = (mentorwise||[]).reduce((a,r)=>a+(parseInt(r.i1_done)||0),0);
+    const totalAssign  = (mentorwise||[]).reduce((a,r)=>a+(parseInt(r.assigned)||0),0);
+    const totalPending = totalAssign - totalDone;
+    const totalPct     = pct(totalDone, totalAssign);
+
+    const s1Table = new Table({
+      width: { size: 9200, type: WidthType.DXA },
+      columnWidths: [2800, 1080, 1080, 1080, 1080, 1080],
+      rows: [
+        new TableRow({ children: [
+          mkC(mkP('Mentor Name',  {bold:true,size:18,color:WHITE}), {bg:NAVY, borders:thins}),
+          mkC(mkP('Assigned',     {bold:true,size:18,color:WHITE,align:AlignmentType.CENTER}), {bg:NAVY, borders:thins}),
+          mkC(mkP('Done',         {bold:true,size:18,color:WHITE,align:AlignmentType.CENTER}), {bg:NAVY, borders:thins}),
+          mkC(mkP('Pending',      {bold:true,size:18,color:WHITE,align:AlignmentType.CENTER}), {bg:NAVY, borders:thins}),
+          mkC(mkP('%',            {bold:true,size:18,color:WHITE,align:AlignmentType.CENTER}), {bg:NAVY, borders:thins}),
+          mkC(mkP('Avg Score',    {bold:true,size:18,color:WHITE,align:AlignmentType.CENTER}), {bg:NAVY, borders:thins}),
+        ]}),
+        ...s1Rows,
+        // Totals row
+        new TableRow({ children: [
+          mkC(mkP('TOTAL / OVERALL', {bold:true,size:18,color:WHITE}),           {bg:NAVY2,borders:thins}),
+          mkC(mkP(String(totalAssign),{bold:true,size:19,color:WHITE,align:AlignmentType.CENTER}), {bg:NAVY2,borders:thins}),
+          mkC(mkP(String(totalDone),  {bold:true,size:19,color:WHITE,align:AlignmentType.CENTER}), {bg:NAVY2,borders:thins}),
+          mkC(mkP(String(totalPending),{bold:true,size:19,color:WHITE,align:AlignmentType.CENTER}),{bg:NAVY2,borders:thins}),
+          mkC(mkP(`${totalPct}%`,     {bold:true,size:19,color:WHITE,align:AlignmentType.CENTER}), {bg:NAVY2,borders:thins}),
+          mkC(mkP(sc.resume?parseFloat(sc.resume).toFixed(1):'—',{bold:true,size:19,color:WHITE,align:AlignmentType.CENTER}),{bg:NAVY2,borders:thins}),
+        ]}),
+      ],
+    });
+
+    // ── OVERALL SCORES TABLE ─────────────────────────────
+    const scoreLabels = ['Resume','Communication','Grooming','Attitude','Technical'];
+    const scoreVals   = [sc.resume, sc.comm, sc.grooming, sc.attitude, sc.tech];
+    const scoreTable  = new Table({
+      width: { size: 9200, type: WidthType.DXA },
+      columnWidths: [1840,1840,1840,1840,1840],
+      rows: [
+        new TableRow({ children: scoreLabels.map(l=>mkC(mkP(l,{bold:true,size:18,color:NAVY,align:AlignmentType.CENTER}),{bg:LIGHT,borders:thins})) }),
+        new TableRow({ children: scoreVals.map(v=>mkC([
+          mkP(v?parseFloat(v).toFixed(1)+'/5':'—',{bold:true,size:26,color:scCol(v),align:AlignmentType.CENTER}),
+          mkP(v?(!isNaN(v)?(['','Poor','Below Avg','Average','Good','Excellent'][Math.round(parseFloat(v))]||''):''):'Not scored',{size:16,color:scCol(v),italic:true,align:AlignmentType.CENTER}),
+        ],{bg:scBg(v),borders:thins,margins:{top:100,bottom:100,left:80,right:80}})) }),
+      ],
+    });
+
+    // ── AI TEXT SECTION ──────────────────────────────────
+    const aiChildren = [];
+    for (const line of (aiText||'').split('\n')) {
+      const t2 = line.trim();
+      if (!t2) { aiChildren.push(new Paragraph({spacing:{before:60,after:0},children:[new TextRun('')]})); continue; }
+      if (/^#{1,2}\s/.test(t2)) {
+        const h = t2.replace(/^#+\s*/,'').replace(/\*\*/g,'').trim();
+        aiChildren.push(...secHead(h));
+        continue;
+      }
+      if (/^[-•*]\s/.test(t2)) {
+        aiChildren.push(new Paragraph({
+          spacing:{before:60,after:60},
+          indent:{left:360,hanging:240},
+          children:[
+            new TextRun({text:'\u25B8   ',size:18,color:GOLD,font:'Calibri'}),
+            new TextRun({text:t2.replace(/^[-•*]\s*/,'').replace(/\*\*/g,''),size:19,color:DTEXT,font:'Calibri'}),
+          ],
+        }));
+        continue;
+      }
+      aiChildren.push(new Paragraph({spacing:{before:60,after:60},children:[new TextRun({text:t2.replace(/\*\*/g,''),size:19,color:DTEXT,font:'Calibri'})]}));
+    }
+
+    // ── FOOTER ───────────────────────────────────────────
+    const footer = new Paragraph({
+      alignment:AlignmentType.CENTER,
+      spacing:{before:300,after:60},
+      border:{top:{style:BorderStyle.SINGLE,size:6,color:TEAL,space:4}},
+      children:[
+        new TextRun({text:'Career Development Centre (CDC)  ·  ',size:15,color:MUTED,font:'Calibri',italics:true}),
+        new TextRun({text:'Manav Rachna Educational Institutions',size:15,color:NAVY,font:'Calibri',bold:true}),
+        new TextRun({text:`  ·  CMP 2026  ·  CONFIDENTIAL  ·  ${generatedAt||''}`,size:15,color:MUTED,font:'Calibri',italics:true}),
+      ],
+    });
+
+    // ── ASSEMBLE DOC ─────────────────────────────────────
+    const sp = (n) => new Paragraph({spacing:{before:n,after:0},children:[new TextRun('')]});
+
+    const chartImg = new Paragraph({
+      spacing:{before:80,after:80},
+      children:[new ImageRun({
+        data: chartPng,
+        transformation: { width: 620, height: Math.round(620 * (mentorwise||[]).length * 38 / 680) + 60 },
+        type: 'png',
+      })],
+    });
+
+    const doc = new Document({
+      styles:{ default:{ document:{ run:{ font:'Calibri', size:20, color:DTEXT } } } },
+      sections:[{
+        properties:{
+          page:{ size:{width:11906,height:16838}, margin:{top:720,right:800,bottom:720,left:800} },
+        },
+        children:[
+          headerTable, sp(160),
+          kpiTable,    sp(200),
+
+          ...secHead('Group Meeting — Consolidated Summary', '\u{1F465}'),
+          grpTable,    sp(200),
+
+          ...secHead('Session 1 — Mentor-wise 1-on-1 Compliance', '\u{1F4CB}'),
+          s1Table,     sp(180),
+
+          ...secHead('Session 1 Compliance — Bar Chart', '\u{1F4CA}'),
+          chartImg,    sp(160),
+
+          ...secHead('Overall Assessment Scores (Session 1 Avg)', '\u{1F3AF}'),
+          scoreTable,  sp(200),
+
+          ...(aiText ? [...secHead('AI Analysis & Recommendations', '\u{1F916}'), ...aiChildren, sp(160)] : []),
+
+          new Paragraph({spacing:{before:120,after:120},border:{bottom:{style:BorderStyle.SINGLE,size:4,color:'E5E7EB',space:1}},children:[new TextRun('')]}),
+          footer,
+        ],
+      }],
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition',`attachment; filename="CMP2026_Full_Program_Report_${(generatedAt||'').replace(/\s+/g,'_')}.docx"`);
+    res.send(buffer);
+  } catch(e) {
+    console.error('Full report DOCX error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 router.post('/program-report', auth, async (req, res) => {
   if (req.user.role !== 'super_admin') return res.status(403).json({ error: 'Admin only' });
   try {
